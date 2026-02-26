@@ -1,0 +1,35 @@
+name: AI News
+
+on:
+  schedule:
+    # ตั้งค่าให้รันตอน 01:00 UTC (ซึ่งตรงกับ 08:00 น. ตามเวลาประเทศไทย) ทุกวัน
+    - cron: '0 1 * * *'
+  
+  # ใส่คำสั่งนี้ไว้เผื่อให้เรากดปุ่มรัน (Manual) บนหน้าเว็บ GitHub ได้เองโดยไม่ต้องรอเวลา
+  workflow_dispatch: 
+
+jobs:
+  run-news-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run News Bot
+      # ดึงคีย์จาก GitHub Secrets มาจำลองเป็น Environment Variables ให้สคริปต์เราใช้งาน
+      env:
+        GROQ: ${{ secrets.GROQ }}
+        DISCORD: ${{ secrets.DISCORD }}
+      run: |
+        python main.py
