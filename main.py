@@ -15,15 +15,29 @@ client = Groq(api_key=GROQ_API_KEY)
 def get_extensive_news():
     sources = [
         {"url": "https://techcrunch.com/category/artificial-intelligence/feed/", "name": "TechCrunch"},
-        {"url": "https://hnrss.org/newest?q=AI", "name": "Hacker News"}
+        {"url": "https://hnrss.org/newest?q=AI", "name": "Hacker News"},
+        {"url": "https://www.reddit.com/r/artificial/top.rss?t=day", "name": "Reddit"},
+        {"url": "http://export.arxiv.org/rss/cs.AI", "name": "ArXiv"},
+        {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "name": "Ars Technica"},
+        {"url": "https://venturebeat.com/category/ai/feed/", "name": "VentureBeat"}
     ]
+    
     all_articles = []
+    
     for s in sources:
-        feed = feedparser.parse(s['url'])
-        for entry in feed.entries[:7]: 
-            all_articles.append({"title": entry.title, "link": entry.link, "source_name": s['name']})
+        try:
+            feed = feedparser.parse(s['url'])
+            for entry in feed.entries[:7]: 
+                all_articles.append({
+                    "title": entry.title, 
+                    "link": entry.link, 
+                    "source_name": s['name']
+                })
+        except Exception as e:
+            print(f"⚠️ ข้ามการดึงข่าวจาก {s['name']} เนื่องจาก: {e}")
+            continue
+            
     return all_articles
-
 def generate_and_group_reports(news_list):
     categories_format = {
         "TECH": {"cat_title": "🚀 AI Tech อุบัติใหม่", "color": 3447003},
@@ -113,7 +127,7 @@ def send_to_discord(reports):
         print("⚠️ ไม่มีข่าวที่จะส่ง")
         return
 
-    print("🚚 กำลังทยอยส่ง Embeds สรุป 3 ข่าวเด่นเข้า Discord...")
+    print("🚚 กำลังรวบรวมและส่ง Embeds ทั้งหมดในข้อความเดียวเข้า Discord...")
 
     from datetime import datetime
     thai_months = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
@@ -121,31 +135,31 @@ def send_to_discord(reports):
     now = datetime.now()
     today = f"{now.day} {thai_months[now.month - 1]} {now.year + 543}"
     
-    intro_payload = {"content": f"📅 **🔥 AI Hub Top 3 Highlights: สรุป 3 ข่าวเด่นประจำวันที่ {today}!**"}
-    requests.post(DISCORD_WEBHOOK_URL, json=intro_payload)
-    time.sleep(1)
+    # สร้าง Payload หลักที่มีทั้งข้อความเกริ่นนำ และเตรียมลิสต์สำหรับใส่ Embeds
+    payload = {
+        "content": f"**💻🔥 AI Top 3 Highlights: สรุปข่าว AI ประจำวันที่ {today}!**",
+        "embeds": []
+    }
 
+    # วนลูปเพื่อนำแต่ละหมวดหมู่มาต่อในลิสต์ embeds
     for report in reports:
         safe_content = report["summary"][:4000]
         
-        payload = {
-            "embeds": [{
-                "author": {"name": report["cat_title"]},
-                "title": report["title"],
-                "url": report["link"],
-                "description": safe_content,
-                "color": report["color"],
-                "footer": {"text": f"📰 อ้างอิงแหล่งที่มา: {report['source_name']}"}
-            }]
-        }
+        payload["embeds"].append({
+            "author": {"name": report["cat_title"]},
+            "title": report["title"],
+            "url": report["link"],
+            "description": safe_content,
+            "color": report["color"],
+            "footer": {"text": f"📰 อ้างอิงแหล่งที่มา: {report['source_name']}"}
+        })
 
-        res = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-        if res.status_code == 204:
-            print(f"✅ ส่งหมวด {report['category']} สำเร็จ!")
-        else:
-            print(f"❌ หมวด {report['category']} มีปัญหา: {res.text}")
-        
-        time.sleep(1)
+    # ส่ง Request เพียงครั้งเดียว
+    res = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    if res.status_code == 204:
+        print("✅ ส่งข่าวทั้ง 3 หมวดหมู่สำเร็จในข้อความเดียว!")
+    else:
+        print(f"❌ มีปัญหาในการส่ง: {res.text}")
 
 if __name__ == "__main__":
     articles = get_extensive_news()
