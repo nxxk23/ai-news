@@ -20,7 +20,6 @@ def get_extensive_news():
     all_articles = []
     for s in sources:
         feed = feedparser.parse(s['url'])
-        # ดึงมาฝั่งละ 7 ข่าวรวมเป็น 14 ข่าว เพื่อเป็นตัวเลือกให้ AI คัด
         for entry in feed.entries[:7]: 
             all_articles.append({"title": entry.title, "link": entry.link, "source_name": s['name']})
     return all_articles
@@ -41,7 +40,6 @@ def generate_and_group_reports(news_list):
             article_data = Article(item['link'])
             article_data.download()
             article_data.parse()
-            # ตัดมาแค่ 800 ตัวอักษรแรก เพื่อให้ AI อ่านภาพรวมได้ทั้งหมดโดยไม่เกินโควต้า Token
             text = article_data.text[:800] 
             if len(text) > 100:
                 articles_context += f"ID: {idx}\nTitle: {item['title']}\nSource: {item['source_name']}\nContent: {text}\n\n"
@@ -81,7 +79,7 @@ def generate_and_group_reports(news_list):
             {"role": "user", "content": prompt}
         ],
         temperature=0.7,
-        response_format={"type": "json_object"} # บังคับให้ตอบเป็น JSON ทำให้เราแกะข้อมูลไปใส่ง่ายๆ
+        response_format={"type": "json_object"} 
     )
     
     raw_res = completion.choices[0].message.content
@@ -130,7 +128,6 @@ def send_to_discord(reports):
     for report in reports:
         safe_content = report["summary"][:4000]
         
-        # ปรับแต่ง Embed ให้เอา Link ไปฝังใน Title เลย (คลิกที่หัวข้อแล้วเด้งไปเว็บ)
         payload = {
             "embeds": [{
                 "author": {"name": report["cat_title"]},
