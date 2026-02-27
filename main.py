@@ -137,7 +137,7 @@ def send_to_discord(reports):
     
     # สร้าง Payload หลักที่มีทั้งข้อความเกริ่นนำ และเตรียมลิสต์สำหรับใส่ Embeds
     payload = {
-        "content": f"**💻🔥 AI Top 3 Highlights: สรุปข่าว AI ประจำวันที่ {today}!**",
+        "content": f"**🔥 AI Top 3 Highlights: สรุปข่าว AI ประจำวันที่ {today}!**",
         "embeds": []
     }
 

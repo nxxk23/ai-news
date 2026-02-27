@@ -2,7 +2,7 @@ name: AI News
 
 on:
   schedule:
-    - cron: '0 1 * * *'
+    - cron: '01 1 * * *'
   workflow_dispatch: 
 
 jobs:
