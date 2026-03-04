@@ -1,9 +1,9 @@
 name: AI News
 
 on:
-  schedule:
-    - cron: '01 1 * * *'
   workflow_dispatch: 
+  repository_dispatch:
+      types: [run-news-bot]
 
 jobs:
   run-news-bot:
