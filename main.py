@@ -3,6 +3,7 @@ import feedparser
 import requests
 import time
 import json
+import concurrent.futures # 🎯 นำเข้าไลบรารีสำหรับทำ ThreadPool
 from groq import Groq
 from dotenv import load_dotenv
 from newspaper import Article
@@ -38,6 +39,25 @@ def get_extensive_news():
             continue
             
     return all_articles
+
+# 🎯 แยกฟังก์ชันดึงเนื้อหาข่าวออกมา เพื่อให้รันใน Thread ได้
+def fetch_single_article(data):
+    idx, item = data
+    try:
+        article_data = Article(item['link'])
+        article_data.download()
+        article_data.parse()
+        text = article_data.text[:800] 
+        if len(text) > 100:
+            return {
+                "idx": str(idx),
+                "item": item,
+                "context": f"ID: {idx}\nTitle: {item['title']}\nSource: {item['source_name']}\nContent: {text}\n\n"
+            }
+    except Exception:
+        pass
+    return None
+
 def generate_and_group_reports(news_list):
     categories_format = {
         "TECH": {"cat_title": "🚀 AI Tech อุบัติใหม่", "color": 3447003},
@@ -48,18 +68,21 @@ def generate_and_group_reports(news_list):
     articles_context = ""
     valid_articles = {}
     
-    print("📥 กำลังดึงเนื้อหาข่าวเบื้องต้นเพื่อคัดเลือก 3 ข่าวเด่น...")
-    for idx, item in enumerate(news_list):
-        try:
-            article_data = Article(item['link'])
-            article_data.download()
-            article_data.parse()
-            text = article_data.text[:800] 
-            if len(text) > 100:
-                articles_context += f"ID: {idx}\nTitle: {item['title']}\nSource: {item['source_name']}\nContent: {text}\n\n"
-                valid_articles[str(idx)] = item
-        except Exception:
-            continue
+    print("📥 กำลังดึงเนื้อหาข่าวเบื้องต้นเพื่อคัดเลือก 3 ข่าวเด่น (แบบรันพร้อมกันด้วย ThreadPool)...")
+    
+    # 🎯 เตรียมข้อมูลแพ็คคู่ (index, ข้อมูลข่าว) เพื่อส่งเข้า Thread
+    items_to_process = list(enumerate(news_list))
+    
+    # 🎯 เรียกใช้ ThreadPoolExecutor โดยจำกัดให้ทำงานพร้อมกันสูงสุด 10 งาน
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # โยนงานให้ Executor ทำแบบขนาน
+        results = executor.map(fetch_single_article, items_to_process)
+        
+        # รวบรวมผลลัพธ์ที่ได้กลับมาประกอบร่าง
+        for res in results:
+            if res is not None:
+                articles_context += res["context"]
+                valid_articles[res["idx"]] = res["item"]
 
     prompt = f"""
     คุณคือบรรณาธิการข่าว Tech AI หน้าที่ของคุณคือเลือกข่าวที่ดีที่สุด 'เพียง 3 ข่าว' จากรายการด้านล่าง 
