@@ -12,7 +12,6 @@ from newspaper import Article
 load_dotenv("credential.env")
 GROQ_API_KEY = os.getenv("GROQ")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_INVEST")
-OPENSTOCK_URL = "https://github.com/Open-Dev-Society/OpenStock"
 client = Groq(api_key=GROQ_API_KEY)
 
 
@@ -89,6 +88,30 @@ def generate_investment_brief(news):
     return reports
 
 
+def build_market_heatmap(reports):
+    symbols = []
+    for report in reports:
+        for symbol in str(report.get("tickers", "")).replace(",", " ").split():
+            symbol = symbol.strip().upper().replace("$", "")
+            if symbol and symbol != "-" and symbol not in symbols:
+                symbols.append(symbol)
+    rows = []
+    for symbol in symbols[:8]:
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
+            response = requests.get(url, timeout=10)
+            result = response.json()["chart"]["result"][0]
+            closes = [value for value in result["indicators"]["quote"][0]["close"] if value is not None]
+            if len(closes) < 2:
+                continue
+            change = (closes[-1] - closes[-2]) / closes[-2] * 100
+            tile = "🟩" if change >= 1 else "🟢" if change >= 0 else "🟨" if change > -1 else "🟥"
+            rows.append(f"{tile} `{symbol:<6} {change:+.2f}%`")
+        except (KeyError, IndexError, TypeError, ValueError, requests.RequestException):
+            continue
+    return "\n".join(rows) if rows else "ยังไม่มีราคาตลาดล่าสุดสำหรับ ticker ในข่าวรอบนี้"
+
+
 def send_to_discord(reports):
     if not DISCORD_WEBHOOK_URL:
         raise RuntimeError("ต้องตั้ง GitHub secret DISCORD_INVEST เป็น webhook ของ channel ลงทุนก่อน")
@@ -106,9 +129,9 @@ def send_to_discord(reports):
                 {"name": "แหล่งข่าว", "value": report["source_name"], "inline": False},
             ],
         })
-    embeds.append({"title": "🔎 OpenStock", "url": OPENSTOCK_URL, "description": "ดูราคา watchlist และข้อมูลบริษัท", "color": 7506394})
     today = datetime.now().strftime("%d/%m/%Y")
-    payload = {"content": f"**📈 หุ้น AI/Tech + ETF สำหรับ DCA**  ·  {today}", "embeds": embeds, "allowed_mentions": {"parse": []}}
+    heatmap = build_market_heatmap(reports)
+    payload = {"content": f"**📈 หุ้น AI/Tech + ETF สำหรับ DCA**  ·  {today}\n\n**📊 Market heatmap (เปลี่ยนแปลงเทียบวันก่อน)**\n{heatmap}", "embeds": embeds, "allowed_mentions": {"parse": []}}
     response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=30)
     response.raise_for_status()
 
