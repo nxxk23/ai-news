@@ -98,18 +98,20 @@ def get_market_quotes(reports):
             if symbol and symbol != "-" and symbol not in symbols:
                 symbols.append(symbol)
     quotes = []
-    for symbol in symbols[:8]:
-        try:
-            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
-            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            result = response.json()["chart"]["result"][0]
-            closes = [value for value in result["indicators"]["quote"][0]["close"] if value is not None]
+    try:
+        joined = ",".join(symbols[:8])
+        url = f"https://query2.finance.yahoo.com/v7/finance/spark?symbols={joined}&range=5d&interval=1d"
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        results = response.json()["spark"]["result"]
+        by_symbol = {item["symbol"]: item["response"][0] for item in results}
+        for symbol in symbols[:8]:
+            closes = [value for value in by_symbol.get(symbol, {}).get("indicators", {}).get("quote", [{}])[0].get("close", []) if value is not None]
             if len(closes) < 2:
-                continue
-            change = (closes[-1] - closes[-2]) / closes[-2] * 100
-            quotes.append((symbol, change, closes[-1]))
-        except (KeyError, IndexError, TypeError, ValueError, requests.RequestException):
-            quotes.append((symbol, None, None))
+                quotes.append((symbol, None, None))
+            else:
+                quotes.append((symbol, (closes[-1] - closes[-2]) / closes[-2] * 100, closes[-1]))
+    except (KeyError, IndexError, TypeError, ValueError, requests.RequestException):
+        quotes = [(symbol, None, None) for symbol in symbols[:8]]
     return quotes
 
 
