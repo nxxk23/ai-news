@@ -19,8 +19,17 @@ client = Groq(api_key=GROQ_API_KEY)
 def get_investment_news():
     sources = [
         {"url": "https://news.google.com/rss/search?q=AI+stocks+OR+technology+stocks+when:2d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: AI/Tech stocks"},
+        {"url": "https://news.google.com/rss/search?q=semiconductor+OR+NVIDIA+OR+AMD+OR+TSMC+when:2d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: semiconductors"},
+        {"url": "https://news.google.com/rss/search?q=Microsoft+OR+Amazon+OR+Alphabet+OR+Meta+AI+when:2d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: Big Tech"},
         {"url": "https://news.google.com/rss/search?q=ETF+DCA+investing+when:7d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: ETF/DCA"},
+        {"url": "https://news.google.com/rss/search?q=VOO+OR+VTI+OR+QQQ+OR+VT+ETF+when:7d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: broad-market ETFs"},
         {"url": "https://news.google.com/rss/search?q=%E0%B8%A5%E0%B8%87%E0%B8%97%E0%B8%B8%E0%B8%99%E0%B9%81%E0%B8%A1%E0%B8%99+%E0%B8%AB%E0%B8%B8%E0%B9%89%E0%B8%99+OR+ETF+when:7d&hl=th&gl=TH&ceid=TH:th", "name": "Google News: ลงทุนแมน"},
+        {"url": "https://news.google.com/rss/search?q=%E0%B8%AB%E0%B8%B8%E0%B9%89%E0%B8%99+AI+OR+ETF+OR+DCA+when:7d&hl=th&gl=TH&ceid=TH:th", "name": "Google News: หุ้น/ETF ไทย"},
+        {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "name": "Wall Street Journal: Markets"},
+        {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "name": "CNBC: Markets"},
+        {"url": "https://feeds.marketwatch.com/marketwatch/topstories/", "name": "MarketWatch: Top stories"},
+        {"url": "https://seekingalpha.com/market-news/feed.xml", "name": "Seeking Alpha: Market news"},
+        {"url": "https://www.sec.gov/rss/news/press.xml", "name": "SEC: Press releases"},
     ]
     facebook_feed = os.getenv("FACEBOOK_FEED_URL")
     if facebook_feed:
