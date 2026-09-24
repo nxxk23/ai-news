@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 from datetime import datetime
 
 import feedparser
@@ -53,6 +54,7 @@ def get_investment_news():
                     "link": entry.get("link", ""),
                     "source_name": source["name"],
                     "published": entry.get("published", ""),
+                    "published_parsed": entry.get("published_parsed"),
                 })
         except Exception as exc:
             print(f"ข้ามแหล่งข่าว {source['name']}: {exc}")
@@ -65,7 +67,19 @@ def get_investment_news():
 
 
 def select_news(news, limit=5):
-    return news[:limit]
+    # Feed order is inconsistent across providers; sort by publication time so
+    # the Discord post shows the fastest/latest items first.
+    def published_ts(item):
+        parsed = item.get("published_parsed")
+        if parsed:
+            try:
+                return time.mktime(parsed)
+            except (TypeError, OverflowError, ValueError):
+                pass
+        return 0
+
+    ranked = sorted(news, key=published_ts, reverse=True)
+    return ranked[:limit]
 
 
 def get_market_quotes(reports):
