@@ -3,7 +3,8 @@ name: AI News
 on:
   workflow_dispatch: 
   schedule:
-    - cron: '0 12 * * *'
+    # Every 5 minutes during the US market session (12:00–21:00 UTC).
+    - cron: '*/5 12-21 * * 1-5'
   repository_dispatch:
       types: [run-news-bot]
 

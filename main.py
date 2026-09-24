@@ -1,4 +1,3 @@
-import concurrent.futures
 import json
 import os
 import tempfile
@@ -7,14 +6,18 @@ from datetime import datetime
 import feedparser
 import requests
 from dotenv import load_dotenv
-from groq import Groq
-from newspaper import Article
 from PIL import Image, ImageDraw, ImageFont
 
 load_dotenv("credential.env")
-GROQ_API_KEY = os.getenv("GROQ")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_INVEST")
-client = Groq(api_key=GROQ_API_KEY)
+DROP_ALERT_PCT = float(os.getenv("DROP_ALERT_PCT", "3"))
+WATCHLISTS = {
+    "AI platforms": ["NVDA", "MSFT", "GOOGL", "META", "AMZN"],
+    "Semiconductors": ["NVDA", "AMD", "AVGO", "TSM", "ASML"],
+    "Cloud/software": ["PLTR", "ORCL", "CRM", "SNOW", "NOW"],
+    "DCA ETFs": ["QQQ", "VOO", "VTI", "VT", "SOXX"],
+}
+WATCHLIST_SYMBOLS = list(dict.fromkeys(symbol for group in WATCHLISTS.values() for symbol in group))
 
 
 def get_investment_news():
@@ -31,6 +34,11 @@ def get_investment_news():
         {"url": "https://feeds.marketwatch.com/marketwatch/topstories/", "name": "MarketWatch: Top stories"},
         {"url": "https://seekingalpha.com/market-news/feed.xml", "name": "Seeking Alpha: Market news"},
         {"url": "https://www.sec.gov/rss/news/press.xml", "name": "SEC: Press releases"},
+        {"url": "https://finance.yahoo.com/news/rssindex", "name": "Yahoo Finance"},
+        {"url": "https://www.investing.com/rss/news_25.rss", "name": "Investing.com: Stocks"},
+        {"url": "https://www.benzinga.com/feed", "name": "Benzinga"},
+        {"url": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best", "name": "Reuters: Business"},
+        {"url": "https://news.google.com/rss/search?q=earnings+guidance+AI+OR+semiconductor+when:1d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: earnings"},
     ]
     facebook_feed = os.getenv("FACEBOOK_FEED_URL")
     if facebook_feed:
@@ -39,59 +47,29 @@ def get_investment_news():
     for source in sources:
         try:
             feed = feedparser.parse(source["url"])
-            for entry in feed.entries[:8]:
-                articles.append({"title": entry.get("title", ""), "link": entry.get("link", ""), "source_name": source["name"]})
+            for entry in feed.entries[:12]:
+                articles.append({
+                    "title": entry.get("title", "").strip(),
+                    "link": entry.get("link", ""),
+                    "source_name": source["name"],
+                    "published": entry.get("published", ""),
+                })
         except Exception as exc:
             print(f"ข้ามแหล่งข่าว {source['name']}: {exc}")
-    return articles
+    unique = {}
+    for item in articles:
+        key = item["title"].lower()
+        if item["title"] and item["link"] and key not in unique:
+            unique[key] = item
+    return list(unique.values())
 
 
-def fetch_article(data):
-    index, item = data
-    try:
-        article = Article(item["link"])
-        article.download()
-        article.parse()
-        text = article.text[:1200]
-        if len(text) >= 120:
-            return str(index), item, f"ID: {index}\nTitle: {item['title']}\nSource: {item['source_name']}\nContent: {text}\n"
-    except Exception:
-        pass
-    return None
-
-
-def generate_investment_brief(news):
-    context, valid = [], {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        for result in executor.map(fetch_article, enumerate(news)):
-            if result:
-                index, item, text = result
-                valid[index] = item
-                context.append(text)
-    prompt = f"""
-คุณเป็นนักวิเคราะห์การเงินสำหรับสรุปข่าวให้ผู้ลงทุนทั่วไป เลือกไม่เกิน 3 ข่าวที่มีผลต่อหุ้นเทคโนโลยี/AI หรือ ETF สำหรับ DCA
-ข้อมูลข่าว:
-{chr(10).join(context)}
-ตอบ JSON เท่านั้น: {{"items":[{{"id":"...","headline":"...","impact":"...","action":"BUY|DCA|WATCH|AVOID","tickers":"...","risk":"..."}}]}}
-กติกา: ภาษาไทยสั้นมาก แต่ละข่าวไม่เกิน 3 บรรทัด; ใส่ ticker เฉพาะเมื่อ ticker นั้นปรากฏในข่าวโดยตรง; ใส่ VOO/VTI/VT/QQQ ได้เฉพาะเมื่อข่าวพูดถึง ETF/ดัชนีนั้นจริง; ห้ามเดา ticker จากชื่อบริษัทหรือเหตุการณ์; ถ้าไม่มี ticker ที่ยืนยันได้ให้ใช้ "-"; action เป็นมุมมองเพื่อการศึกษา ไม่รับประกันผลตอบแทน; ถ้าหลักฐานไม่พอใช้ WATCH; ห้ามให้คำสั่งซื้อขายเฉพาะบุคคล
-"""
-    completion = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
-        messages=[{"role": "system", "content": "You are a concise financial-news analyst. Return valid JSON only."}, {"role": "user", "content": prompt}],
-        temperature=0.2,
-        response_format={"type": "json_object"},
-    )
-    parsed = json.loads(completion.choices[0].message.content)
-    reports = []
-    for item in parsed.get("items", [])[:3]:
-        news_id = str(item.get("id", ""))
-        if news_id in valid:
-            reports.append({**item, **valid[news_id]})
-    return reports
+def select_news(news, limit=5):
+    return news[:limit]
 
 
 def get_market_quotes(reports):
-    symbols = ["NVDA", "MSFT", "META", "GOOGL", "AMZN", "QQQ", "VOO", "VT"]
+    symbols = WATCHLIST_SYMBOLS.copy()
     for report in reports:
         for symbol in str(report.get("tickers", "")).replace(",", " ").split():
             symbol = symbol.strip().upper().replace("$", "")
@@ -99,25 +77,28 @@ def get_market_quotes(reports):
                 symbols.append(symbol)
     quotes = []
     try:
-        joined = ",".join(symbols[:8])
-        url = f"https://query2.finance.yahoo.com/v7/finance/spark?symbols={joined}&range=5d&interval=1d"
+        joined = ",".join(symbols)
+        url = f"https://query2.finance.yahoo.com/v7/finance/spark?symbols={joined}&range=1d&interval=5m"
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         results = response.json()["spark"]["result"]
         by_symbol = {item["symbol"]: item["response"][0] for item in results}
-        for symbol in symbols[:8]:
-            closes = [value for value in by_symbol.get(symbol, {}).get("indicators", {}).get("quote", [{}])[0].get("close", []) if value is not None]
+        for symbol in symbols:
+            response = by_symbol.get(symbol, {})
+            closes = [value for value in response.get("indicators", {}).get("quote", [{}])[0].get("close", []) if value is not None]
+            previous = response.get("meta", {}).get("chartPreviousClose")
             if len(closes) < 2:
                 quotes.append((symbol, None, None))
             else:
-                quotes.append((symbol, (closes[-1] - closes[-2]) / closes[-2] * 100, closes[-1]))
+                base = previous or closes[0]
+                quotes.append((symbol, (closes[-1] - base) / base * 100, closes[-1]))
     except (KeyError, IndexError, TypeError, ValueError, requests.RequestException):
-        quotes = [(symbol, None, None) for symbol in symbols[:8]]
+        quotes = [(symbol, None, None) for symbol in symbols]
     return quotes
 
 
-def build_market_heatmap_image(reports):
-    quotes = get_market_quotes(reports)
-    width, height = 1400, 760
+def build_market_heatmap_image(reports, quotes=None):
+    quotes = quotes or get_market_quotes(reports)
+    width, height = 1600, 1120
     image = Image.new("RGB", (width, height), "#090b10")
     draw = ImageDraw.Draw(image)
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -148,9 +129,9 @@ def build_market_heatmap_image(reports):
             draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill="#19d3b1")
     draw.text((chart_x + 18, chart_y + chart_h - 28), "daily change", fill="#8f9bab", font=small_font)
 
-    heat_x, heat_y, heat_w, heat_h = 370, 116, 998, 590
+    heat_x, heat_y, heat_w, heat_h = 370, 116, 1198, 930
     draw.text((heat_x, 72), "Stock Heatmap", fill="#f4f7fb", font=title_font)
-    cols, rows = 4, 2
+    cols, rows = 5, 4
     gap = 8
     tile_w = (heat_w - gap * (cols - 1)) // cols
     tile_h = (heat_h - gap * (rows - 1)) // rows
@@ -182,30 +163,45 @@ def build_market_heatmap_image(reports):
 def send_to_discord(reports):
     if not DISCORD_WEBHOOK_URL:
         raise RuntimeError("ต้องตั้ง GitHub secret DISCORD_INVEST เป็น webhook ของ channel ลงทุนก่อน")
-    embeds = []
-    for report in reports:
-        action = report.get("action", "WATCH")
-        action_icon = {"BUY": "🟢", "DCA": "🔵", "WATCH": "🟡", "AVOID": "🔴"}.get(action, "⚪")
-        risk = str(report.get("risk", "-"))
-        risk_icon = "🔴" if any(word in risk.lower() for word in ("high", "สูง")) else "🟡" if any(word in risk.lower() for word in ("medium", "ปานกลาง")) else "🟢"
-        embeds.append({
-            "title": f"{action_icon} {action}  ·  {report.get('headline', report['title'])}",
-            "url": report["link"],
-            "description": report.get("impact", "-"),
-            "color": {"BUY": 3066993, "DCA": 3447003, "WATCH": 15105570, "AVOID": 15158332}.get(action, 9807270),
-            "fields": [
-                {"name": "ตัวเลือก", "value": f"`{report.get('tickers', '-')}`", "inline": True},
-                {"name": "ความเสี่ยง", "value": f"{risk_icon} {risk}", "inline": True},
-            ],
-        })
+    symbol_aliases = {
+        "NVIDIA": "NVDA", "MICROSOFT": "MSFT", "META": "META", "FACEBOOK": "META",
+        "ALPHABET": "GOOGL", "GOOGLE": "GOOGL", "AMAZON": "AMZN", "APPLE": "AAPL",
+        "AMD": "AMD", "TSMC": "TSM", "BROADCOM": "AVGO", "TESLA": "TSLA",
+        "QQQ": "QQQ", "VOO": "VOO", "VTI": "VTI", "VT": "VT",
+    }
+    groups = {}
+    for item in reports:
+        upper_title = item["title"].upper()
+        symbols = {ticker for name, ticker in symbol_aliases.items() if name in upper_title}
+        key = next(iter(symbols), "MARKET")
+        groups.setdefault(key, []).append(item)
+    quotes = get_market_quotes(reports)
+    alerts = [(symbol, change) for symbol, change, _ in quotes if change is not None and change <= -DROP_ALERT_PCT]
+    lines = []
+    if alerts:
+        lines.append(f"@here **🚨 หุ้นลงถึงจุดช้อน (≤ -{DROP_ALERT_PCT:.1f}%)**")
+        lines.extend(f"🔻 `{symbol}` {change:+.2f}%" for symbol, change in alerts)
+        lines.append("")
+    lines.append("**📰 ข่าวล่าสุด**")
+    for symbol, items in list(groups.items())[:5]:
+        lines.append(f"\n**{symbol}**")
+        for item in items[:3]:
+            title = item["title"].replace("[", "(").replace("]", ")")[:150]
+            lines.append(f"• [{title}]({item['link']}) · {item['source_name']}")
+    lines.append("\n**👀 Watchlist (ด้านละ 5 ตัว)**")
+    for name, symbols in WATCHLISTS.items():
+        lines.append(f"**{name}:** " + " ".join(f"`{symbol}`" for symbol in symbols))
     today = datetime.now().strftime("%d/%m/%Y")
-    heatmap_path = build_market_heatmap_image(reports)
-    embeds.insert(0, {"title": "📊 Market Heatmap", "image": {"url": "attachment://market-heatmap.png"}, "color": 921102})
-    payload = {"content": f"**📈 หุ้น AI/Tech + ETF สำหรับ DCA**  ·  {today}", "embeds": embeds, "allowed_mentions": {"parse": []}}
+    heatmap_path = build_market_heatmap_image(reports, quotes)
+    payload = {
+        "content": f"**📈 หุ้น AI/Tech + ETF สำหรับ DCA** · {today}\n\n" + "\n".join(lines),
+        "embeds": [{"title": "📊 Market Heatmap", "image": {"url": "attachment://market-heatmap.png"}, "color": 921102}],
+        "allowed_mentions": {"parse": ["everyone"] if alerts else []},
+    }
     with open(heatmap_path, "rb") as image_file:
         response = requests.post(DISCORD_WEBHOOK_URL, data={"payload_json": json.dumps(payload)}, files={"file": ("market-heatmap.png", image_file, "image/png")}, timeout=30)
     response.raise_for_status()
 
 
 if __name__ == "__main__":
-    send_to_discord(generate_investment_brief(get_investment_news()))
+    send_to_discord(select_news(get_investment_news()))
