@@ -118,15 +118,15 @@ def send_to_discord(reports):
     embeds = []
     for report in reports:
         action = report.get("action", "WATCH")
+        action_icon = {"BUY": "🟢", "DCA": "🔵", "WATCH": "🟡", "AVOID": "🔴"}.get(action, "⚪")
         embeds.append({
-            "title": f"{action}  |  {report.get('headline', report['title'])}",
+            "title": f"{action_icon} {action}  ·  {report.get('headline', report['title'])}",
             "url": report["link"],
             "description": report.get("impact", "-"),
             "color": {"BUY": 3066993, "DCA": 3447003, "WATCH": 15105570, "AVOID": 15158332}.get(action, 9807270),
             "fields": [
                 {"name": "ตัวเลือก", "value": f"`{report.get('tickers', '-')}`", "inline": True},
                 {"name": "ความเสี่ยง", "value": report.get("risk", "-"), "inline": True},
-                {"name": "แหล่งข่าว", "value": report["source_name"], "inline": False},
             ],
         })
     today = datetime.now().strftime("%d/%m/%Y")
