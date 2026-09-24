@@ -100,8 +100,8 @@ def get_market_quotes(reports):
     quotes = []
     for symbol in symbols[:8]:
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
-            response = requests.get(url, timeout=10)
+            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             result = response.json()["chart"]["result"][0]
             closes = [value for value in result["indicators"]["quote"][0]["close"] if value is not None]
             if len(closes) < 2:
