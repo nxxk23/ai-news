@@ -89,7 +89,7 @@ def generate_investment_brief(news):
 
 
 def build_market_heatmap(reports):
-    symbols = []
+    symbols = ["NVDA", "MSFT", "META", "GOOGL", "AMZN", "QQQ", "VOO", "VT"]
     for report in reports:
         for symbol in str(report.get("tickers", "")).replace(",", " ").split():
             symbol = symbol.strip().upper().replace("$", "")
