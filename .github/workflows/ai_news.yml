@@ -27,6 +27,7 @@ jobs:
     - name: Run News Bot
       env:
         GROQ: ${{ secrets.GROQ }}
-        DISCORD: ${{ secrets.DISCORD }}
+        DISCORD_INVEST: ${{ secrets.DISCORD_INVEST }}
+        FACEBOOK_FEED_URL: ${{ vars.FACEBOOK_FEED_URL }}
       run: |
         python main.py

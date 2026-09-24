@@ -1,192 +1,104 @@
+import concurrent.futures
+import json
 import os
+from datetime import datetime
+
 import feedparser
 import requests
-import time
-import json
-import concurrent.futures # 🎯 นำเข้าไลบรารีสำหรับทำ ThreadPool
-from groq import Groq
 from dotenv import load_dotenv
+from groq import Groq
 from newspaper import Article
 
 load_dotenv("credential.env")
 GROQ_API_KEY = os.getenv("GROQ")
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD")
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_INVEST")
+OPENSTOCK_URL = "https://github.com/Open-Dev-Society/OpenStock"
 client = Groq(api_key=GROQ_API_KEY)
 
-def get_extensive_news():
-    sources = [
-        {"url": "https://techcrunch.com/category/artificial-intelligence/feed/", "name": "TechCrunch"},
-        {"url": "https://hnrss.org/newest?q=AI", "name": "Hacker News"},
-        {"url": "https://www.reddit.com/r/artificial/top.rss?t=day", "name": "Reddit"},
-        {"url": "http://export.arxiv.org/rss/cs.AI", "name": "ArXiv"},
-        {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "name": "Ars Technica"},
-        {"url": "https://venturebeat.com/category/ai/feed/", "name": "VentureBeat"}
-    ]
-    
-    all_articles = []
-    
-    for s in sources:
-        try:
-            feed = feedparser.parse(s['url'])
-            for entry in feed.entries[:7]: 
-                all_articles.append({
-                    "title": entry.title, 
-                    "link": entry.link, 
-                    "source_name": s['name']
-                })
-        except Exception as e:
-            print(f"⚠️ ข้ามการดึงข่าวจาก {s['name']} เนื่องจาก: {e}")
-            continue
-            
-    return all_articles
 
-# 🎯 แยกฟังก์ชันดึงเนื้อหาข่าวออกมา เพื่อให้รันใน Thread ได้
-def fetch_single_article(data):
-    idx, item = data
+def get_investment_news():
+    sources = [
+        {"url": "https://news.google.com/rss/search?q=AI+stocks+OR+technology+stocks+when:2d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: AI/Tech stocks"},
+        {"url": "https://news.google.com/rss/search?q=ETF+DCA+investing+when:7d&hl=en-US&gl=US&ceid=US:en", "name": "Google News: ETF/DCA"},
+        {"url": "https://news.google.com/rss/search?q=%E0%B8%A5%E0%B8%87%E0%B8%97%E0%B8%B8%E0%B8%99%E0%B9%81%E0%B8%A1%E0%B8%99+%E0%B8%AB%E0%B8%B8%E0%B9%89%E0%B8%99+OR+ETF+when:7d&hl=th&gl=TH&ceid=TH:th", "name": "Google News: ลงทุนแมน"},
+    ]
+    facebook_feed = os.getenv("FACEBOOK_FEED_URL")
+    if facebook_feed:
+        sources.append({"url": facebook_feed, "name": "Facebook investment group"})
+    articles = []
+    for source in sources:
+        try:
+            feed = feedparser.parse(source["url"])
+            for entry in feed.entries[:8]:
+                articles.append({"title": entry.get("title", ""), "link": entry.get("link", ""), "source_name": source["name"]})
+        except Exception as exc:
+            print(f"ข้ามแหล่งข่าว {source['name']}: {exc}")
+    return articles
+
+
+def fetch_article(data):
+    index, item = data
     try:
-        article_data = Article(item['link'])
-        article_data.download()
-        article_data.parse()
-        text = article_data.text[:800] 
-        if len(text) > 100:
-            return {
-                "idx": str(idx),
-                "item": item,
-                "context": f"ID: {idx}\nTitle: {item['title']}\nSource: {item['source_name']}\nContent: {text}\n\n"
-            }
+        article = Article(item["link"])
+        article.download()
+        article.parse()
+        text = article.text[:1200]
+        if len(text) >= 120:
+            return str(index), item, f"ID: {index}\nTitle: {item['title']}\nSource: {item['source_name']}\nContent: {text}\n"
     except Exception:
         pass
     return None
 
-def generate_and_group_reports(news_list):
-    categories_format = {
-        "TECH": {"cat_title": "🚀 AI Tech อุบัติใหม่", "color": 3447003},
-        "TOOLS": {"cat_title": "🛠️ AI Tools & Comparison", "color": 15105570},
-        "TREND": {"cat_title": "📈 AI Trend & Future", "color": 3066993}
-    }
-    
-    articles_context = ""
-    valid_articles = {}
-    
-    print("📥 กำลังดึงเนื้อหาข่าวเบื้องต้นเพื่อคัดเลือก 3 ข่าวเด่น (แบบรันพร้อมกันด้วย ThreadPool)...")
-    
-    # 🎯 เตรียมข้อมูลแพ็คคู่ (index, ข้อมูลข่าว) เพื่อส่งเข้า Thread
-    items_to_process = list(enumerate(news_list))
-    
-    # 🎯 เรียกใช้ ThreadPoolExecutor โดยจำกัดให้ทำงานพร้อมกันสูงสุด 10 งาน
+
+def generate_investment_brief(news):
+    context, valid = [], {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        # โยนงานให้ Executor ทำแบบขนาน
-        results = executor.map(fetch_single_article, items_to_process)
-        
-        # รวบรวมผลลัพธ์ที่ได้กลับมาประกอบร่าง
-        for res in results:
-            if res is not None:
-                articles_context += res["context"]
-                valid_articles[res["idx"]] = res["item"]
-
+        for result in executor.map(fetch_article, enumerate(news)):
+            if result:
+                index, item, text = result
+                valid[index] = item
+                context.append(text)
     prompt = f"""
-    คุณคือบรรณาธิการข่าว Tech AI หน้าที่ของคุณคือเลือกข่าวที่ดีที่สุด 'เพียง 3 ข่าว' จากรายการด้านล่าง 
-    โดยต้องจัดลง 3 หมวดหมู่ (หมวดละ 1 ข่าว ห้ามซ้ำกัน) ดังนี้:
-    1. TECH: เทคโนโลยีใหม่ หรืออัปเดตจากบริษัทใหญ่ๆ (Big Tech)
-    2. TOOLS: เครื่องมือ หรือแอพ AI ใหม่ๆ ที่ออกแบบมาน่าสนใจ มีข้อดีกว่าตัวเดิมในตลาด
-    3. TREND: แนวโน้ม ข่าวอัปเดต หรือเหตุการณ์สำคัญที่เกิดขึ้นในวงการ AI ตอนนี้
-
-    รายการข่าว:
-    {articles_context}
-
-    กติกาการสรุปข่าว:
-    - สรุป Insight (ดียังไง/ต่างยังไง/ทำไมในอนาคตต้องมี) เป็นข้อๆ
-    - ต้องมี 'อีโมจิ' นำหน้าทุกข้อ
-    - ใช้ภาษาวัยรุ่น Tech (เช่น ตัวแรง, Game Changer, จัดเต็ม)
-    - ห้ามใส่ Link ในเนื้อหาสรุป
-
-    ตอบกลับเป็นรูปแบบ JSON เท่านั้น ตามโครงสร้างเป๊ะๆ แบบนี้:
-    {{
-        "TECH": {{"id": "...", "summary": "..."}},
-        "TOOLS": {{"id": "...", "summary": "..."}},
-        "TREND": {{"id": "...", "summary": "..."}}
-    }}
-    """
-    
-    print("🤖 กำลังให้ AI คัดเลือกและสรุป 3 ข่าวใหญ่ประจำวัน...")
+คุณเป็นนักวิเคราะห์การเงินสำหรับสรุปข่าวให้ผู้ลงทุนทั่วไป เลือกไม่เกิน 3 ข่าวที่มีผลต่อหุ้นเทคโนโลยี/AI หรือ ETF สำหรับ DCA
+ข้อมูลข่าว:
+{chr(10).join(context)}
+ตอบ JSON เท่านั้น: {{"items":[{{"id":"...","headline":"...","impact":"...","action":"BUY|DCA|WATCH|AVOID","tickers":"...","risk":"..."}}],"disclaimer":"..."}}
+กติกา: ภาษาไทยสั้นมาก แต่ละข่าวไม่เกิน 3 บรรทัด; ระบุ ticker/ETF เมื่อมีหลักฐานหรือเป็น broad-market ETF ที่รู้จัก; action เป็นมุมมองเพื่อการศึกษา ไม่รับประกันผลตอบแทน; ถ้าไม่มีหลักฐานใช้ WATCH; ห้ามให้คำสั่งซื้อขายเฉพาะบุคคล
+"""
     completion = client.chat.completions.create(
-        # Groq retired the previous Llama aliases; use their recommended
-        # production replacement for Llama 3.1 instead.
         model="openai/gpt-oss-20b",
-        messages=[
-            {"role": "system", "content": "You are a helpful AI news curator. Always output strictly in JSON format."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7,
-        response_format={"type": "json_object"} 
+        messages=[{"role": "system", "content": "You are a concise financial-news analyst. Return valid JSON only."}, {"role": "user", "content": prompt}],
+        temperature=0.2,
+        response_format={"type": "json_object"},
     )
-    
-    raw_res = completion.choices[0].message.content
+    parsed = json.loads(completion.choices[0].message.content)
     reports = []
-    
-    try:
-        parsed_res = json.loads(raw_res)
-        for cat in ["TECH", "TOOLS", "TREND"]:
-            if cat in parsed_res:
-                news_id = str(parsed_res[cat].get("id", ""))
-                summary = parsed_res[cat].get("summary", "")
-                
-                if news_id in valid_articles:
-                    item = valid_articles[news_id]
-                    reports.append({
-                        "category": cat,
-                        "cat_title": categories_format[cat]["cat_title"],
-                        "color": categories_format[cat]["color"],
-                        "title": item["title"],
-                        "link": item["link"],
-                        "source_name": item["source_name"],
-                        "summary": summary
-                    })
-    except Exception as e:
-        print(f"❌ Error parsing JSON from Groq: {e}")
-        
-    return reports
+    for item in parsed.get("items", [])[:3]:
+        news_id = str(item.get("id", ""))
+        if news_id in valid:
+            reports.append({**item, **valid[news_id]})
+    return reports, parsed.get("disclaimer", "ข้อมูลนี้เป็นการสรุปข่าวเพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุนส่วนบุคคล")
 
-def send_to_discord(reports):
-    if not reports:
-        print("⚠️ ไม่มีข่าวที่จะส่ง")
-        return
 
-    print("🚚 กำลังรวบรวมและส่ง Embeds ทั้งหมดในข้อความเดียวเข้า Discord...")
-
-    from datetime import datetime
-    thai_months = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
-                   "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
-    now = datetime.now()
-    today = f"{now.day} {thai_months[now.month - 1]} {now.year + 543}"
-    
-    # สร้าง Payload หลักที่มีทั้งข้อความเกริ่นนำ และเตรียมลิสต์สำหรับใส่ Embeds
-    payload = {
-        "content": f"**🔥 AI Top 3 Highlights: สรุปข่าว AI ประจำวันที่ {today}!**",
-        "embeds": []
-    }
-
-    # วนลูปเพื่อนำแต่ละหมวดหมู่มาต่อในลิสต์ embeds
+def send_to_discord(reports, disclaimer):
+    if not DISCORD_WEBHOOK_URL:
+        raise RuntimeError("ต้องตั้ง GitHub secret DISCORD_INVEST เป็น webhook ของ channel ลงทุนก่อน")
+    embeds = []
     for report in reports:
-        safe_content = report["summary"][:4000]
-        
-        payload["embeds"].append({
-            "author": {"name": report["cat_title"]},
-            "title": report["title"],
+        embeds.append({
+            "title": f"{report.get('action', 'WATCH')} · {report.get('headline', report['title'])}",
             "url": report["link"],
-            "description": safe_content,
-            "color": report["color"],
-            "footer": {"text": f"📰 อ้างอิงแหล่งที่มา: {report['source_name']}"}
+            "description": f"**ผลกระทบ:** {report.get('impact', '-')}\n**ตัวเลือก:** `{report.get('tickers', '-')}`\n**ความเสี่ยง:** {report.get('risk', '-')}",
+            "color": {"BUY": 3066993, "DCA": 3447003, "WATCH": 15105570, "AVOID": 15158332}.get(report.get("action"), 9807270),
+            "footer": {"text": f"แหล่งข่าว: {report['source_name']}"},
         })
+    embeds.append({"title": "🔎 OpenStock", "url": OPENSTOCK_URL, "description": "Open-source dashboard สำหรับดูราคา watchlist และข้อมูลบริษัท", "color": 7506394})
+    today = datetime.now().strftime("%d/%m/%Y")
+    payload = {"content": f"**📈 สรุปหุ้น AI/Tech และ ETF สำหรับ DCA · {today}**\n_{disclaimer}_", "embeds": embeds, "allowed_mentions": {"parse": []}}
+    response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=30)
+    response.raise_for_status()
 
-    # ส่ง Request เพียงครั้งเดียว
-    res = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-    if res.status_code == 204:
-        print("✅ ส่งข่าวทั้ง 3 หมวดหมู่สำเร็จในข้อความเดียว!")
-    else:
-        print(f"❌ มีปัญหาในการส่ง: {res.text}")
 
 if __name__ == "__main__":
-    articles = get_extensive_news()
-    top_reports = generate_and_group_reports(articles)
-    send_to_discord(top_reports)
+    reports, disclaimer = generate_investment_brief(get_investment_news())
+    send_to_discord(reports, disclaimer)
