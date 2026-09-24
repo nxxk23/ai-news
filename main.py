@@ -71,7 +71,7 @@ def generate_investment_brief(news):
 คุณเป็นนักวิเคราะห์การเงินสำหรับสรุปข่าวให้ผู้ลงทุนทั่วไป เลือกไม่เกิน 3 ข่าวที่มีผลต่อหุ้นเทคโนโลยี/AI หรือ ETF สำหรับ DCA
 ข้อมูลข่าว:
 {chr(10).join(context)}
-ตอบ JSON เท่านั้น: {{"items":[{{"id":"...","headline":"...","impact":"...","action":"BUY|DCA|WATCH|AVOID","tickers":"...","risk":"..."}}],"disclaimer":"..."}}
+ตอบ JSON เท่านั้น: {{"items":[{{"id":"...","headline":"...","impact":"...","action":"BUY|DCA|WATCH|AVOID","tickers":"...","risk":"..."}}]}}
 กติกา: ภาษาไทยสั้นมาก แต่ละข่าวไม่เกิน 3 บรรทัด; ใส่ ticker เฉพาะเมื่อ ticker นั้นปรากฏในข่าวโดยตรง; ใส่ VOO/VTI/VT/QQQ ได้เฉพาะเมื่อข่าวพูดถึง ETF/ดัชนีนั้นจริง; ห้ามเดา ticker จากชื่อบริษัทหรือเหตุการณ์; ถ้าไม่มี ticker ที่ยืนยันได้ให้ใช้ "-"; action เป็นมุมมองเพื่อการศึกษา ไม่รับประกันผลตอบแทน; ถ้าหลักฐานไม่พอใช้ WATCH; ห้ามให้คำสั่งซื้อขายเฉพาะบุคคล
 """
     completion = client.chat.completions.create(
@@ -86,28 +86,32 @@ def generate_investment_brief(news):
         news_id = str(item.get("id", ""))
         if news_id in valid:
             reports.append({**item, **valid[news_id]})
-    return reports, parsed.get("disclaimer", "ข้อมูลนี้เป็นการสรุปข่าวเพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุนส่วนบุคคล")
+    return reports
 
 
-def send_to_discord(reports, disclaimer):
+def send_to_discord(reports):
     if not DISCORD_WEBHOOK_URL:
         raise RuntimeError("ต้องตั้ง GitHub secret DISCORD_INVEST เป็น webhook ของ channel ลงทุนก่อน")
     embeds = []
     for report in reports:
+        action = report.get("action", "WATCH")
         embeds.append({
-            "title": f"{report.get('action', 'WATCH')} · {report.get('headline', report['title'])}",
+            "title": f"{action}  |  {report.get('headline', report['title'])}",
             "url": report["link"],
-            "description": f"**ผลกระทบ:** {report.get('impact', '-')}\n**ตัวเลือก:** `{report.get('tickers', '-')}`\n**ความเสี่ยง:** {report.get('risk', '-')}",
-            "color": {"BUY": 3066993, "DCA": 3447003, "WATCH": 15105570, "AVOID": 15158332}.get(report.get("action"), 9807270),
-            "footer": {"text": f"แหล่งข่าว: {report['source_name']}"},
+            "description": report.get("impact", "-"),
+            "color": {"BUY": 3066993, "DCA": 3447003, "WATCH": 15105570, "AVOID": 15158332}.get(action, 9807270),
+            "fields": [
+                {"name": "ตัวเลือก", "value": f"`{report.get('tickers', '-')}`", "inline": True},
+                {"name": "ความเสี่ยง", "value": report.get("risk", "-"), "inline": True},
+                {"name": "แหล่งข่าว", "value": report["source_name"], "inline": False},
+            ],
         })
-    embeds.append({"title": "🔎 OpenStock", "url": OPENSTOCK_URL, "description": "Open-source dashboard สำหรับดูราคา watchlist และข้อมูลบริษัท", "color": 7506394})
+    embeds.append({"title": "🔎 OpenStock", "url": OPENSTOCK_URL, "description": "ดูราคา watchlist และข้อมูลบริษัท", "color": 7506394})
     today = datetime.now().strftime("%d/%m/%Y")
-    payload = {"content": f"**📈 สรุปหุ้น AI/Tech และ ETF สำหรับ DCA · {today}**\n_{disclaimer}_", "embeds": embeds, "allowed_mentions": {"parse": []}}
+    payload = {"content": f"**📈 หุ้น AI/Tech + ETF สำหรับ DCA**  ·  {today}", "embeds": embeds, "allowed_mentions": {"parse": []}}
     response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=30)
     response.raise_for_status()
 
 
 if __name__ == "__main__":
-    reports, disclaimer = generate_investment_brief(get_investment_news())
-    send_to_discord(reports, disclaimer)
+    send_to_discord(generate_investment_brief(get_investment_news()))
