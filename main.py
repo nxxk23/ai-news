@@ -110,7 +110,10 @@ def generate_and_group_reports(news_list):
     
     print("🤖 กำลังให้ AI คัดเลือกและสรุป 3 ข่าวใหญ่ประจำวัน...")
     completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        # llama-3.3-70b-versatile was retired by Groq and now returns 404.
+        # Keep this on a currently supported model so scheduled runs continue
+        # working when the provider removes older model aliases.
+        model="llama-3.1-8b-instant",
         messages=[
             {"role": "system", "content": "You are a helpful AI news curator. Always output strictly in JSON format."},
             {"role": "user", "content": prompt}
